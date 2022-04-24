@@ -69,7 +69,7 @@ namespace SimpleCryptoBot
                             var usdAccountId = allAccounts.FirstOrDefault(x => x.Currency == "USD")?.Id.ToString();
 
                             Log.Information("Scanning coins...");
-                            foreach (var coin in allCoins.Where(x => !allAccounts.Any(y => y.Currency == x.BaseCurrency && y.Available >= x.MinMarketFunds)))
+                            foreach (var coin in allCoins.Where(x => !allAccounts.Any(y => y.Currency == x.BaseCurrency && y.Balance >= x.MinMarketFunds)))
                             {
                                 try
                                 {
