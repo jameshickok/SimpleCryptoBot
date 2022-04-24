@@ -20,7 +20,11 @@ namespace SimpleCryptoBot.Models
 
         public bool IsGoodInvestment { get; set; }
 
-        public decimal ChangePercent { get; set; } // Order by descending for best result.
+        public bool ProfitMultiplier { get; set; } // If true, then invest more.
+
+        public decimal StopLossStopPrice { get; set; }
+
+        public decimal StopLossLimitPrice { get; set; }
 
         public CandleGranularity Granularity { get; set; }
 
@@ -67,7 +71,6 @@ namespace SimpleCryptoBot.Models
             if(change > feeRate || granularity == CandleGranularity.Hour24)
             {
                 // Smallest unit of time that is profitable
-                ChangePercent = change.Value;
                 return granularity;
             }
             else
@@ -105,7 +108,7 @@ namespace SimpleCryptoBot.Models
         {
             var feeRates = await client.FeesService.GetCurrentFeesAsync();
             ThrottleSpeedPrivate();
-            var feeRate = feeRates.MakerFeeRate * 2;
+            var feeRate = feeRates.MakerFeeRate > 0 ? feeRates.MakerFeeRate * 2 : feeRates.TakerFeeRate;
             var granularity = await GetCandleGranularity(productId, feeRate, client);
             
             var start = DateTime.UtcNow;
@@ -146,6 +149,11 @@ namespace SimpleCryptoBot.Models
                 Red = candles.First();
                 Green = candles.Last();
                 Granularity = granularity;
+                StopLossStopPrice = Green.Low.Value - (Green.Low.Value * feeRate);
+                StopLossLimitPrice = StopLossStopPrice - (Green.Low.Value * feeRate);
+
+                // Smaller body on inside bar indicates low volatility and price change. Invest more.
+                ProfitMultiplier = GetCandleBodySize(Green) < GetCandleTotalSize(Green) / 3;
             }
         }
 
@@ -157,6 +165,11 @@ namespace SimpleCryptoBot.Models
         private bool IsStrongTrend(Candle previousCandle, Candle currentCandle)
         {
             return currentCandle.Volume > previousCandle.Volume;
+        }
+
+        private bool IsDecreasingVolatility(Candle previousCandle, Candle currentCandle)
+        {
+            return currentCandle.Volume < previousCandle.Volume;
         }
 
         private bool IsInsideBar(Candle previousCandle, Candle currentCandle)
@@ -201,8 +214,8 @@ namespace SimpleCryptoBot.Models
 
             var feeGap = feeRates.MakerFeeRate * 2;
 
-            var isWorthy =  IsInsideBar(Red, Green) && 
-                            IsStrongTrend(Red, Green) &&
+            var isWorthy =  IsInsideBar(Red, Green) &&
+                            IsDecreasingVolatility(Red, Green) &&
                             IsLongWickDown(Green)
                             ;
 

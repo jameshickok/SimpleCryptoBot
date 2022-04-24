@@ -87,10 +87,12 @@ namespace SimpleCryptoBot
                                         ThrottleSpeedPrivate();
                                         
                                         var investment = spendingAmountAvailable / 10;
-                                        var profitFactor = coinStat.ChangePercent - (feeRates.MakerFeeRate * 2); // Can be positive or negative depending on short term profit potential.
 
-                                        investment = investment + (investment * profitFactor);
-
+                                        if (coinStat.ProfitMultiplier)
+                                        {
+                                            investment *= 2;
+                                        }
+                                        
                                         var ticker = client.ProductsService.GetProductTickerAsync(coin.Id).Result;
                                         var price = ticker.Price;
                                         var stopPrice = price + (price * feeRates.TakerFeeRate);
@@ -138,20 +140,19 @@ namespace SimpleCryptoBot
                                 {
                                     var productId = $"{account.Currency}-USD";
                                     var coin = allCoins.FirstOrDefault(x => x.Id == productId);
+                                    var coinStat = new CoinStat(coin.Id, client);
                                     var ticker = client.ProductsService.GetProductTickerAsync(coin.Id).Result;
                                     ThrottleSpeedPublic();
                                     var price = ticker.Price;
-                                    var stopPrice = price * (decimal)0.81;
-                                    var limitPrice = price * (decimal)0.80; // 20% stop loss
+                                    var stopPrice = GetTruncatedValue(coinStat.StopLossStopPrice, coin.QuoteIncrement);
+                                    var limitPrice = GetTruncatedValue(coinStat.StopLossLimitPrice, coin.QuoteIncrement);
                                     var size = account.Available;
 
                                     if (size > coin.BaseMaxSize)
                                     {
                                         size = coin.BaseMaxSize;
                                     }
-
-                                    stopPrice = GetTruncatedValue(stopPrice, coin.QuoteIncrement);
-                                    limitPrice = GetTruncatedValue(limitPrice, coin.QuoteIncrement);
+                                    
                                     size = GetTruncatedValue(size, coin.BaseIncrement);
 
                                     if (size >= coin.BaseMinSize)
@@ -233,9 +234,9 @@ namespace SimpleCryptoBot
                                                 // This is the original price, or as close as popssible to it.
                                                 order.Price *= (decimal)1.25;
                                             }
-                                            var cost = order.Price + (order.Price * feeRates.MakerFeeRate) + (price * feeRates.MakerFeeRate);
-                                            var profitMargin = coinStat.ChangePercent > (feeRates.MakerFeeRate * 2) ?
-                                                coinStat.ChangePercent - (feeRates.MakerFeeRate * 2) :
+                                            var cost = order.Price + (order.Price * feeRates.MakerFeeRate) + (price * feeRates.MakerFeeRate) + (price * (decimal)0.001);
+                                            var profitMargin = feeRates.MakerFeeRate > 0 ?
+                                                feeRates.MakerFeeRate:
                                                 feeRates.TakerFeeRate;
                                             var minimumPrice = cost + (cost * profitMargin);
 
@@ -304,9 +305,11 @@ namespace SimpleCryptoBot
                             }
 
                             // Send weekly reports once on Sundays.
-                            if(DateTime.Now.DayOfWeek == DayOfWeek.Sunday && reportsSent.Any(x => x.Key == client.Name && x.Value))
+                            if(DateTime.Now.DayOfWeek == DayOfWeek.Sunday && !reportsSent.Any(x => x.Key == client.Name && x.Value))
                             {
                                 SendWeeklyReports(client).Wait();
+                                reportsSent.Remove(client.Name);
+                                reportsSent.Add(client.Name, true);
                             }
                         }
                         catch (Exception exc)
