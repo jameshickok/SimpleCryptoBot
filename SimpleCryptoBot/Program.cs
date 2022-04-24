@@ -69,7 +69,7 @@ namespace SimpleCryptoBot
                             var usdAccountId = allAccounts.FirstOrDefault(x => x.Currency == "USD")?.Id.ToString();
 
                             Log.Information("Scanning coins...");
-                            foreach (var coin in allCoins)
+                            foreach (var coin in allCoins.Where(x => !allAccounts.Any(y => y.Currency == x.BaseCurrency && y.Available >= x.MinMarketFunds)))
                             {
                                 try
                                 {
@@ -85,8 +85,7 @@ namespace SimpleCryptoBot
                                         var spendingAmountAvailable = usdAccount.Available * (decimal)0.9;
                                         var feeRates = client.FeesService.GetCurrentFeesAsync().Result;
                                         ThrottleSpeedPrivate();
-
-                                        //var investment = spendingAmountAvailable / allCoins.Count; // Can't make much money this way.
+                                        
                                         var investment = spendingAmountAvailable / 10;
                                         var profitFactor = coinStat.ChangePercent - (feeRates.MakerFeeRate * 2); // Can be positive or negative depending on short term profit potential.
 
