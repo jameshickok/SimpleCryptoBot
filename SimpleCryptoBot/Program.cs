@@ -46,7 +46,7 @@ namespace SimpleCryptoBot
                 {
                     var authenticator = new Authenticator(option.Key, option.Secret, option.Passphrase);
 
-                    using (var client = new PrivateClient(option.Name, option.Email, authenticator, sandbox))
+                    using (var client = new PrivateClient(option.Name, option.Email, authenticator, sandbox, option.PurchaseEnabled))
                     {
                         try
                         {
@@ -68,64 +68,67 @@ namespace SimpleCryptoBot
                             ThrottleSpeedPrivate();
                             var usdAccountId = allAccounts.FirstOrDefault(x => x.Currency == "USD")?.Id.ToString();
 
-                            Log.Information("Scanning coins...");
-                            foreach (var coin in allCoins.Where(x => !allAccounts.Any(y => y.Currency == x.BaseCurrency && y.Balance >= x.MinMarketFunds)))
+                            if(client.PurchaseEnabled)
                             {
-                                try
+                                Log.Information("Scanning coins...");
+                                foreach (var coin in allCoins.Where(x => !allAccounts.Any(y => y.Currency == x.BaseCurrency && y.Balance >= x.MinMarketFunds)))
                                 {
-                                    Console.Write($" {coin.Id} ");
-                                    var coinStat = new CoinStat(coin.Id, client);
-
-                                    if (coinStat.IsGoodInvestment)
+                                    try
                                     {
-                                        // Buy the coin.
-                                        var usdAccount = client.AccountsService.GetAccountByIdAsync(usdAccountId).Result;
-                                        ThrottleSpeedPrivate();
+                                        Console.Write($" {coin.Id} ");
+                                        var coinStat = new CoinStat(coin.Id, client);
 
-                                        var spendingAmountAvailable = usdAccount.Available * (decimal)0.9;
-                                        var feeRates = client.FeesService.GetCurrentFeesAsync().Result;
-                                        ThrottleSpeedPrivate();
-                                        
-                                        var investment = spendingAmountAvailable / 10;
-
-                                        if (coinStat.ProfitMultiplier)
+                                        if (coinStat.IsGoodInvestment)
                                         {
-                                            investment *= 2;
-                                        }
-                                        
-                                        var ticker = client.ProductsService.GetProductTickerAsync(coin.Id).Result;
-                                        var price = ticker.Price;
-                                        var stopPrice = price + (price * feeRates.TakerFeeRate);
-                                        var limitPrice = stopPrice + (stopPrice * feeRates.TakerFeeRate);
-                                        var size = investment / limitPrice;
-
-                                        if (size > coin.BaseMaxSize)
-                                        {
-                                            size = coin.BaseMaxSize;
-                                        }
-
-                                        stopPrice = GetTruncatedValue(stopPrice, coin.QuoteIncrement);
-                                        limitPrice = GetTruncatedValue(limitPrice, coin.QuoteIncrement);
-                                        size = GetTruncatedValue(size, coin.BaseIncrement);
-
-                                        if (size >= coin.BaseMinSize)
-                                        {
-                                            client.OrdersService.PlaceStopOrderAsync(
-                                                 CoinbasePro.Services.Orders.Types.OrderSide.Buy,
-                                                 coin.Id,
-                                                 size,
-                                                 limitPrice,
-                                                 stopPrice
-                                            ).Wait();
+                                            // Buy the coin.
+                                            var usdAccount = client.AccountsService.GetAccountByIdAsync(usdAccountId).Result;
                                             ThrottleSpeedPrivate();
-                                            Console.WriteLine();
-                                            Log.Information($"Purchase order created for coin {coin.Id} with a starting bid of ${Math.Round(limitPrice, 4)}.");
+
+                                            var spendingAmountAvailable = usdAccount.Available * (decimal)0.9;
+                                            var feeRates = client.FeesService.GetCurrentFeesAsync().Result;
+                                            ThrottleSpeedPrivate();
+
+                                            var investment = spendingAmountAvailable / 10;
+
+                                            if (coinStat.ProfitMultiplier)
+                                            {
+                                                investment *= 2;
+                                            }
+
+                                            var ticker = client.ProductsService.GetProductTickerAsync(coin.Id).Result;
+                                            var price = ticker.Price;
+                                            var stopPrice = price + (price * feeRates.TakerFeeRate);
+                                            var limitPrice = stopPrice + (stopPrice * feeRates.TakerFeeRate);
+                                            var size = investment / limitPrice;
+
+                                            if (size > coin.BaseMaxSize)
+                                            {
+                                                size = coin.BaseMaxSize;
+                                            }
+
+                                            stopPrice = GetTruncatedValue(stopPrice, coin.QuoteIncrement);
+                                            limitPrice = GetTruncatedValue(limitPrice, coin.QuoteIncrement);
+                                            size = GetTruncatedValue(size, coin.BaseIncrement);
+
+                                            if (size >= coin.BaseMinSize)
+                                            {
+                                                client.OrdersService.PlaceStopOrderAsync(
+                                                     CoinbasePro.Services.Orders.Types.OrderSide.Buy,
+                                                     coin.Id,
+                                                     size,
+                                                     limitPrice,
+                                                     stopPrice
+                                                ).Wait();
+                                                ThrottleSpeedPrivate();
+                                                Console.WriteLine();
+                                                Log.Information($"Purchase order created for coin {coin.Id} with a starting bid of ${Math.Round(limitPrice, 4)}.");
+                                            }
                                         }
                                     }
-                                }
-                                catch (Exception)
-                                {
-                                    continue;
+                                    catch (Exception)
+                                    {
+                                        continue;
+                                    }
                                 }
                             }
 
@@ -392,19 +395,20 @@ namespace SimpleCryptoBot
             var options = new List<ClientOptions>();
             var contents = File.ReadAllLines("keys.csv");
             var headerRow = contents.FirstOrDefault();
-            if (headerRow == "Name,Email,Passphrase,Secret,Key")
+            if (headerRow == "Name,Email,Passphrase,Secret,Key,PurchaseEnabled")
             {
                 foreach (var friend in contents.Where(x => x != headerRow))
                 {
                     var friendKeys = friend.Split(',');
 
-                    if (friendKeys.Count() == 5)
+                    if (friendKeys.Count() == 6)
                     {
                         var name = friendKeys.ElementAt(0);
                         var email = friendKeys.ElementAt(1);
                         var passphrase = friendKeys.ElementAt(2);
                         var secret = friendKeys.ElementAt(3);
                         var key = friendKeys.ElementAt(4);
+                        var purchaseEnabled = friendKeys.ElementAt(5);
 
                         var option = new ClientOptions
                         {
@@ -412,7 +416,8 @@ namespace SimpleCryptoBot
                             Email = email,
                             Passphrase = passphrase,
                             Secret = secret,
-                            Key = key
+                            Key = key,
+                            PurchaseEnabled = bool.Parse(purchaseEnabled)
                         };
 
                         options.Add(option);

@@ -6,10 +6,11 @@ namespace SimpleCryptoBot.Models
 {
     public class PrivateClient : CoinbaseProClient, IDisposable
     {
-        public PrivateClient(string name, string email, Authenticator authenticator, bool sandbox) : base(authenticator, sandbox)
+        public PrivateClient(string name, string email, Authenticator authenticator, bool sandbox, bool purchaseEnabled) : base(authenticator, sandbox)
         {
             this.Name = name;
             this.Email = email;
+            this.PurchaseEnabled = purchaseEnabled;
         }
 
         public string Name { get; set; }
@@ -18,6 +19,8 @@ namespace SimpleCryptoBot.Models
         /// For reports
         /// </summary>
         public string Email { get; set; }
+
+        public bool PurchaseEnabled { get; set; }
 
         public void Dispose()
         {
