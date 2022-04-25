@@ -153,7 +153,8 @@ namespace SimpleCryptoBot.Models
                 StopLossLimitPrice = StopLossStopPrice - (Green.Low.Value * feeRate);
 
                 // Smaller body on inside bar indicates low volatility and price change. Invest more.
-                ProfitMultiplier = GetCandleBodySize(Green) < GetCandleTotalSize(Green) / 3;
+                ProfitMultiplier = GetCandleBodySize(Green) < GetCandleTotalSize(Green) / 3 || 
+                    (Red.Close == Red.Low && Green.Close == Green.High);
             }
         }
 
@@ -179,6 +180,16 @@ namespace SimpleCryptoBot.Models
                 GetCandleTotalSize(previousCandle) > GetCandleTotalSize(currentCandle) &&
                 GetCandleBodySize(previousCandle) > GetCandleBodySize(currentCandle) &&
                 previousCandle.Low < currentCandle.Low;
+        }
+
+        private bool IsDownUp(Candle previousCandle, Candle currentCandle)
+        {
+            return !IsGreen(previousCandle) && IsGreen(currentCandle) &&
+                GetCandleBodySize(previousCandle) <= GetCandleTotalSize(previousCandle) / 3 &&
+                GetCandleBodySize(currentCandle) <= GetCandleTotalSize(currentCandle) / 3 &&
+                !IsLongWickDown(previousCandle) && IsLongWickDown(currentCandle) &&
+                GetCandleBodySize(previousCandle) < GetCandleBodySize(currentCandle) &&
+                IsStrongTrend(previousCandle, currentCandle);
         }
 
         // Indicates resistance level reaching low point.
@@ -209,15 +220,16 @@ namespace SimpleCryptoBot.Models
 
         private bool IsWorthy(string productId, CoinbasePro.ICoinbaseProClient client)
         {
-            var feeRates = client.FeesService.GetCurrentFeesAsync().Result;
-            ThrottleSpeedPrivate();
+            var stat = client.ProductsService.GetProductStatsAsync(productId).Result;
+            ThrottleSpeedPublic();
 
-            var feeGap = feeRates.MakerFeeRate * 2;
+            var average = (stat.High + stat.Low + stat.Open + stat.Last) / 4;
 
-            var isWorthy =  IsInsideBar(Red, Green) &&
-                            IsDecreasingVolatility(Red, Green) &&
-                            IsLongWickDown(Green)
-                            ;
+            var isWorthy = Green.Close >= average && (
+                    (
+                        IsInsideBar(Red, Green) && IsDecreasingVolatility(Red, Green)) ||
+                        IsDownUp(Red, Green)
+                    );
 
             return isWorthy;
         }

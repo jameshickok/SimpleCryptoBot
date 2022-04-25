@@ -118,7 +118,7 @@ namespace SimpleCryptoBot
                                                  stopPrice
                                             ).Wait();
                                             ThrottleSpeedPrivate();
-
+                                            Console.WriteLine();
                                             Log.Information($"Purchase order created for coin {coin.Id} with a starting bid of ${Math.Round(limitPrice, 4)}.");
                                         }
                                     }
@@ -223,17 +223,10 @@ namespace SimpleCryptoBot
                                                 ).Wait();
                                                 ThrottleSpeedPrivate();
 
-                                                Log.Information($"Buy order for coin {coin.Id} price driven from ${order.Price} to ${Math.Round(newBidLimit, 4)}.");
+                                                Log.Information($"Buy order for coin {coin.Id} price driven from ${Math.Round(order.Price, 4)} to ${Math.Round(newBidLimit, 4)}.");
                                             }
                                             break;
                                         case CoinbasePro.Services.Orders.Types.OrderSide.Sell:
-
-                                            if(order.Price < price * (decimal)0.80)
-                                            {
-                                                // This only changes order price locally for calculations.
-                                                // This is the original price, or as close as popssible to it.
-                                                order.Price *= (decimal)1.25;
-                                            }
                                             var cost = order.Price + (order.Price * feeRates.MakerFeeRate) + (price * feeRates.MakerFeeRate) + (price * (decimal)0.001);
                                             var profitMargin = feeRates.MakerFeeRate > 0 ?
                                                 feeRates.MakerFeeRate:
@@ -245,33 +238,6 @@ namespace SimpleCryptoBot
 
                                             stopPrice = GetTruncatedValue(stopPrice, coin.QuoteIncrement);
                                             limitPrice = GetTruncatedValue(limitPrice, coin.QuoteIncrement);
-
-                                            // Let the stop loss order season before trailing to sell.
-                                            var timer = DateTime.UtcNow;
-
-                                            switch (coinStat.Granularity)
-                                            {
-                                                case CoinbasePro.Services.Products.Types.CandleGranularity.Minutes1:
-                                                    timer = timer.AddMinutes(-2);
-                                                    break;
-                                                case CoinbasePro.Services.Products.Types.CandleGranularity.Minutes5:
-                                                    timer = timer.AddMinutes(-10);
-                                                    break;
-                                                case CoinbasePro.Services.Products.Types.CandleGranularity.Minutes15:
-                                                    timer = timer.AddMinutes(-30);
-                                                    break;
-                                                case CoinbasePro.Services.Products.Types.CandleGranularity.Hour1:
-                                                    timer = timer.AddMinutes(-120);
-                                                    break;
-                                                case CoinbasePro.Services.Products.Types.CandleGranularity.Hour6:
-                                                    timer = timer.AddMinutes(-720);
-                                                    break;
-                                                case CoinbasePro.Services.Products.Types.CandleGranularity.Hour24:
-                                                    timer = timer.AddMinutes(-2880);
-                                                    break;
-                                                default:
-                                                    break;
-                                            }
                                             
                                             if (limitPrice > minimumPrice)
                                             {
@@ -287,7 +253,7 @@ namespace SimpleCryptoBot
                                                 ).Wait();
                                                 ThrottleSpeedPrivate();
 
-                                                Log.Information($"Sell order for coin {coin.Id} price driven from ${order.Price} to ${Math.Round(limitPrice, 4)}.");
+                                                Log.Information($"Sell order for coin {coin.Id} price driven from ${Math.Round(order.Price, 4)} to ${Math.Round(limitPrice, 4)}.");
                                             }
                                             break;
                                         default:
