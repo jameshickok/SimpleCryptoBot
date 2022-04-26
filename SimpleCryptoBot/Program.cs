@@ -81,6 +81,9 @@ namespace SimpleCryptoBot
                                         if (coinStat.IsGoodInvestment)
                                         {
                                             // Buy the coin.
+                                            var portfolioValue = allAccounts.Sum(x => x.Balance);
+                                            var desiredInvestment = portfolioValue / 10;
+
                                             var usdAccount = client.AccountsService.GetAccountByIdAsync(usdAccountId).Result;
                                             ThrottleSpeedPrivate();
 
@@ -88,9 +91,9 @@ namespace SimpleCryptoBot
                                             var feeRates = client.FeesService.GetCurrentFeesAsync().Result;
                                             ThrottleSpeedPrivate();
 
-                                            var investment = spendingAmountAvailable / 10;
+                                            var investment = spendingAmountAvailable > desiredInvestment ? desiredInvestment : spendingAmountAvailable;
 
-                                            if (coinStat.ProfitMultiplier)
+                                            if (coinStat.ProfitMultiplier && investment * 2 <= spendingAmountAvailable)
                                             {
                                                 investment *= 2;
                                             }
@@ -230,33 +233,38 @@ namespace SimpleCryptoBot
                                             }
                                             break;
                                         case CoinbasePro.Services.Orders.Types.OrderSide.Sell:
-                                            var cost = order.Price + (order.Price * feeRates.MakerFeeRate) + (price * feeRates.MakerFeeRate) + (price * (decimal)0.001);
-                                            var profitMargin = feeRates.MakerFeeRate > 0 ?
-                                                feeRates.MakerFeeRate:
-                                                feeRates.TakerFeeRate;
-                                            var minimumPrice = cost + (cost * profitMargin);
-
-                                            var stopPrice = price - (price * feeRates.TakerFeeRate);
-                                            var limitPrice = stopPrice - (stopPrice * feeRates.TakerFeeRate);
-
-                                            stopPrice = GetTruncatedValue(stopPrice, coin.QuoteIncrement);
-                                            limitPrice = GetTruncatedValue(limitPrice, coin.QuoteIncrement);
-                                            
-                                            if (limitPrice > minimumPrice)
+                                            // Make sure order has aged enough to generate a significant profit (1% targeted).
+                                            if (order.CreatedAt < DateTime.UtcNow.AddMinutes(-15))
                                             {
-                                                client.OrdersService.CancelOrderByIdAsync(order.Id.ToString()).Wait();
-                                                ThrottleSpeedPrivate();
+                                                var cost = order.Price + (order.Price * feeRates.MakerFeeRate) + (price * feeRates.MakerFeeRate) + (price * (decimal)0.001);
+                                                var profitMargin = feeRates.MakerFeeRate > 0 ?
+                                                    feeRates.MakerFeeRate :
+                                                    feeRates.TakerFeeRate;
+                                                var minimumPrice = cost + (cost * profitMargin);
 
-                                                client.OrdersService.PlaceStopOrderAsync(
-                                                     order.Side,
-                                                     order.ProductId,
-                                                     order.Size,
-                                                     limitPrice,
-                                                     stopPrice
-                                                ).Wait();
-                                                ThrottleSpeedPrivate();
+                                                var stopPrice = price - (price * feeRates.TakerFeeRate);
+                                                var limitPrice = stopPrice - (stopPrice * feeRates.TakerFeeRate);
 
-                                                Log.Information($"Sell order for coin {coin.Id} price driven from ${Math.Round(order.Price, 4)} to ${Math.Round(limitPrice, 4)}.");
+                                                stopPrice = GetTruncatedValue(stopPrice, coin.QuoteIncrement);
+                                                limitPrice = GetTruncatedValue(limitPrice, coin.QuoteIncrement);
+
+                                                // Make sure the new order will be profitable
+                                                if (limitPrice > minimumPrice)
+                                                {
+                                                    client.OrdersService.CancelOrderByIdAsync(order.Id.ToString()).Wait();
+                                                    ThrottleSpeedPrivate();
+
+                                                    client.OrdersService.PlaceStopOrderAsync(
+                                                         order.Side,
+                                                         order.ProductId,
+                                                         order.Size,
+                                                         limitPrice,
+                                                         stopPrice
+                                                    ).Wait();
+                                                    ThrottleSpeedPrivate();
+
+                                                    Log.Information($"Sell order for coin {coin.Id} price driven from ${Math.Round(order.Price, 4)} to ${Math.Round(limitPrice, 4)}.");
+                                                }
                                             }
                                             break;
                                         default:
@@ -273,7 +281,7 @@ namespace SimpleCryptoBot
                                 }
                             }
 
-                            // Send weekly reports once on Sundays.
+                            // Send weekly reports once on Sundays...as long as this app is running all day on Sunday. Otherwise it will send the reports again.
                             if(DateTime.Now.DayOfWeek == DayOfWeek.Sunday && !reportsSent.Any(x => x.Key == client.Name && x.Value))
                             {
                                 SendWeeklyReports(client).Wait();

@@ -149,8 +149,8 @@ namespace SimpleCryptoBot.Models
                 Red = candles.First();
                 Green = candles.Last();
                 Granularity = granularity;
-                StopLossStopPrice = Green.Low.Value - (Green.Low.Value * feeRate);
-                StopLossLimitPrice = StopLossStopPrice - (Green.Low.Value * feeRate);
+                StopLossStopPrice = Red.Low.Value - (Red.Low.Value * feeRate);
+                StopLossLimitPrice = StopLossStopPrice - (Red.Low.Value * feeRate);
 
                 // Smaller body on inside bar indicates low volatility and price change. Invest more.
                 ProfitMultiplier = GetCandleBodySize(Green) < GetCandleTotalSize(Green) / 3 || 
