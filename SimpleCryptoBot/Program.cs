@@ -251,10 +251,6 @@ namespace SimpleCryptoBot
                                 reportsSent.Remove(client.Name);
                                 reportsSent.Add(client.Name, true);
                             }
-
-                            // Allow the next 15 minute candle to form unabridged.
-                            var fifteenMinutes = new TimeSpan(0,15,0);
-                            Thread.Sleep(fifteenMinutes);
                         }
                         catch (Exception exc)
                         {
@@ -266,6 +262,9 @@ namespace SimpleCryptoBot
                         }
                     }
                 }
+                // Allow the next 15 minute candle to form unabridged.
+                var fifteenMinutes = new TimeSpan(0, 15, 0);
+                Thread.Sleep(fifteenMinutes);
             }
         }
 
