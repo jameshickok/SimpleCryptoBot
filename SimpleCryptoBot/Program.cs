@@ -62,6 +62,7 @@ namespace SimpleCryptoBot
                                                     !x.CancelOnly &&
                                                     !x.PostOnly
                                                     )
+                                        .OrderBy(x => x.Id)
                                         .ToList();
                             ThrottleSpeedPublic();
 
@@ -263,6 +264,7 @@ namespace SimpleCryptoBot
                     }
                 }
                 // Allow the next 15 minute candle to form unabridged.
+                Log.Information("Pausing for 15 minutes to allow profit to grow...");
                 var fifteenMinutes = new TimeSpan(0, 15, 0);
                 Thread.Sleep(fifteenMinutes);
             }

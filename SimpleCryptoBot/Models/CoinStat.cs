@@ -199,8 +199,7 @@ namespace SimpleCryptoBot.Models
                 return false;
             }
 
-            var isWorthy = IsDecreasingSize(candles.Skip(1).Take(2)) &&
-                AreRed(candles.Take(3));
+            var isWorthy = AreRed(candles.Take(3));
 
             BidStopPrice = candles.Last().High.Value;
             BidLimitPrice = BidStopPrice + (BidStopPrice * (decimal)0.01);
