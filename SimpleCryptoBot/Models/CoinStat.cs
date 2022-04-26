@@ -1,6 +1,7 @@
 ﻿using CoinbasePro.Services.Products.Models;
 using CoinbasePro.Services.Products.Types;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,25 +13,20 @@ namespace SimpleCryptoBot.Models
         public CoinStat(string productId, CoinbasePro.ICoinbaseProClient client)
         {
             ProductId = productId;
-            GetCandles(productId, client).Wait();
             IsGoodInvestment = IsWorthy(productId, client);
         }
 
         public string ProductId { get; set; }
 
         public bool IsGoodInvestment { get; set; }
+        
+        public decimal AskStopPrice { get; set; }
 
-        public bool ProfitMultiplier { get; set; } // If true, then invest more.
+        public decimal AskLimitPrice { get; set; }
 
-        public decimal StopLossStopPrice { get; set; }
+        public decimal BidStopPrice { get; set; }
 
-        public decimal StopLossLimitPrice { get; set; }
-
-        public CandleGranularity Granularity { get; set; }
-
-        public Candle Red { get; set; }
-
-        public Candle Green { get; set; }
+        public decimal BidLimitPrice { get; set; }
 
         private async Task<CandleGranularity> GetCandleGranularity(string productId, decimal feeRate, CoinbasePro.ICoinbaseProClient client, CandleGranularity granularity = CandleGranularity.Minutes1)
         {
@@ -103,64 +99,20 @@ namespace SimpleCryptoBot.Models
                 return await GetCandleGranularity(productId, feeRate, client, newGranularity);
             }
         }
-
-        private async Task GetCandles(string productId, CoinbasePro.ICoinbaseProClient client)
-        {
-            var feeRates = await client.FeesService.GetCurrentFeesAsync();
-            ThrottleSpeedPrivate();
-            var feeRate = feeRates.MakerFeeRate > 0 ? feeRates.MakerFeeRate * 2 : feeRates.TakerFeeRate;
-            var granularity = await GetCandleGranularity(productId, feeRate, client);
-            
-            var start = DateTime.UtcNow;
-            var end = start;
-
-            switch (granularity)
-            {
-                case CandleGranularity.Minutes1:
-                    start = start.AddMinutes(-2);
-                    break;
-                case CandleGranularity.Minutes5:
-                    start = start.AddMinutes(-10);
-                    break;
-                case CandleGranularity.Minutes15:
-                    start = start.AddMinutes(-30);
-                    break;
-                case CandleGranularity.Hour1:
-                    start = start.AddMinutes(-120);
-                    break;
-                case CandleGranularity.Hour6:
-                    start = start.AddMinutes(-720);
-                    break;
-                case CandleGranularity.Hour24:
-                    start = start.AddMinutes(-2880);
-                    break;
-                default:
-                    break;
-            }
-
-            var candles = client.ProductsService
-                .GetHistoricRatesAsync(productId, start, end, granularity)
-                .Result.OrderBy(x => x.Time)
-                .ToList();
-            ThrottleSpeedPublic();
-
-            if (candles?.Count == 2)
-            {
-                Red = candles.First();
-                Green = candles.Last();
-                Granularity = granularity;
-                StopLossStopPrice = Red.Low.Value - (Red.Low.Value * feeRate);
-                StopLossLimitPrice = StopLossStopPrice - (Red.Low.Value * feeRate);
-
-                // Smaller body on inside bar indicates low volatility and price change. Invest more.
-                ProfitMultiplier = GetCandleBodySize(Green) < GetCandleTotalSize(Green) / 3 || 
-                    (Red.Close == Red.Low && Green.Close == Green.High);
-            }
-        }
-
+        
         private bool IsGreen(Candle candle)
         {
             return candle.Open < candle.Close;
+        }
+
+        private bool IsRed(Candle candle)
+        {
+            return candle.Open > candle.Close;
+        }
+
+        private bool AreRed(IEnumerable<Candle> candles)
+        {
+            return candles.All(x => IsRed(x));
         }
 
         private bool IsStrongTrend(Candle previousCandle, Candle currentCandle)
@@ -192,6 +144,13 @@ namespace SimpleCryptoBot.Models
                 IsStrongTrend(previousCandle, currentCandle);
         }
 
+        private bool IsDecreasingSize(IEnumerable<Candle> candles)
+        {
+            var orderByTime = candles.OrderBy(x => x.Time);
+            var orderBySize = candles.OrderByDescending(x => GetCandleBodySize(x));
+            return Equals(orderByTime, orderBySize);
+        }
+
         // Indicates resistance level reaching low point.
         private bool IsLongWickDown(Candle candle)
         {
@@ -220,16 +179,32 @@ namespace SimpleCryptoBot.Models
 
         private bool IsWorthy(string productId, CoinbasePro.ICoinbaseProClient client)
         {
-            var stat = client.ProductsService.GetProductStatsAsync(productId).Result;
+            var product = client.ProductsService.GetSingleProductAsync(productId).Result;
+            ThrottleSpeedPublic();
+            
+            var end = DateTime.UtcNow;
+            var start = end.AddMinutes(-60);
+
+            var candles = client.ProductsService
+                .GetHistoricRatesAsync(productId, start, end, CandleGranularity.Minutes15)
+                .Result.OrderBy(x => x.Time);
             ThrottleSpeedPublic();
 
-            var average = (stat.High + stat.Low + stat.Open + stat.Last) / 4;
+            if(candles?.Count() != 4)
+            {
+                return false;
+            }
 
-            var isWorthy = Green.Close >= average && (
-                    (
-                        IsInsideBar(Red, Green) && IsDecreasingVolatility(Red, Green)) ||
-                        IsDownUp(Red, Green)
-                    );
+            var isWorthy = IsDecreasingSize(candles.Skip(1).Take(2)) &&
+                AreRed(candles.Take(3));
+
+            BidStopPrice = candles.Last().High.Value;
+            BidLimitPrice = BidStopPrice + (BidStopPrice * (decimal)0.01);
+            BidLimitPrice = GetTruncatedValue(BidLimitPrice, product.QuoteIncrement);
+
+            AskStopPrice = candles.Last().Low.Value;
+            AskLimitPrice = AskStopPrice - (AskStopPrice * (decimal)0.01);
+            AskLimitPrice = GetTruncatedValue(AskLimitPrice, product.QuoteIncrement);
 
             return isWorthy;
         }
@@ -242,6 +217,18 @@ namespace SimpleCryptoBot.Models
         private void ThrottleSpeedPrivate()
         {
             Thread.Sleep(34);
+        }
+
+        private decimal GetTruncatedValue(decimal value, decimal increment)
+        {
+            var remainder = value % increment;
+
+            if (remainder > 0)
+            {
+                value -= remainder;
+            }
+
+            return value;
         }
     }
 }

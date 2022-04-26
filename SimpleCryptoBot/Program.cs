@@ -50,6 +50,7 @@ namespace SimpleCryptoBot
                     {
                         try
                         {
+                            Console.WriteLine();
                             Log.Information($"Now managing {client.Name}'s account...");
 
                             var allCoins = client.ProductsService.GetAllProductsAsync().Result
@@ -93,24 +94,18 @@ namespace SimpleCryptoBot
 
                                             var investment = spendingAmountAvailable > desiredInvestment ? desiredInvestment : spendingAmountAvailable;
 
-                                            if (coinStat.ProfitMultiplier && investment * 2 <= spendingAmountAvailable)
+                                            if(investment < 10)
                                             {
-                                                investment *= 2;
+                                                continue;
                                             }
-
-                                            var ticker = client.ProductsService.GetProductTickerAsync(coin.Id).Result;
-                                            var price = ticker.Price;
-                                            var stopPrice = price + (price * feeRates.TakerFeeRate);
-                                            var limitPrice = stopPrice + (stopPrice * feeRates.TakerFeeRate);
-                                            var size = investment / limitPrice;
+                                            
+                                            var size = investment / coinStat.BidLimitPrice;
 
                                             if (size > coin.BaseMaxSize)
                                             {
                                                 size = coin.BaseMaxSize;
                                             }
-
-                                            stopPrice = GetTruncatedValue(stopPrice, coin.QuoteIncrement);
-                                            limitPrice = GetTruncatedValue(limitPrice, coin.QuoteIncrement);
+                                            
                                             size = GetTruncatedValue(size, coin.BaseIncrement);
 
                                             if (size >= coin.BaseMinSize)
@@ -119,12 +114,12 @@ namespace SimpleCryptoBot
                                                      CoinbasePro.Services.Orders.Types.OrderSide.Buy,
                                                      coin.Id,
                                                      size,
-                                                     limitPrice,
-                                                     stopPrice
+                                                     coinStat.BidLimitPrice,
+                                                     coinStat.BidStopPrice
                                                 ).Wait();
                                                 ThrottleSpeedPrivate();
                                                 Console.WriteLine();
-                                                Log.Information($"Purchase order created for coin {coin.Id} with a starting bid of ${Math.Round(limitPrice, 4)}.");
+                                                Log.Information($"Purchase order created for coin {coin.Id} with a starting bid of ${Math.Round(coinStat.BidLimitPrice, 4)}.");
                                             }
                                         }
                                     }
@@ -147,11 +142,6 @@ namespace SimpleCryptoBot
                                     var productId = $"{account.Currency}-USD";
                                     var coin = allCoins.FirstOrDefault(x => x.Id == productId);
                                     var coinStat = new CoinStat(coin.Id, client);
-                                    var ticker = client.ProductsService.GetProductTickerAsync(coin.Id).Result;
-                                    ThrottleSpeedPublic();
-                                    var price = ticker.Price;
-                                    var stopPrice = GetTruncatedValue(coinStat.StopLossStopPrice, coin.QuoteIncrement);
-                                    var limitPrice = GetTruncatedValue(coinStat.StopLossLimitPrice, coin.QuoteIncrement);
                                     var size = account.Available;
 
                                     if (size > coin.BaseMaxSize)
@@ -167,8 +157,8 @@ namespace SimpleCryptoBot
                                              CoinbasePro.Services.Orders.Types.OrderSide.Sell,
                                              coin.Id,
                                              size,
-                                             limitPrice,
-                                             stopPrice
+                                             coinStat.AskLimitPrice,
+                                             coinStat.AskStopPrice
                                         ).Wait();
                                         ThrottleSpeedPrivate();
 
@@ -197,25 +187,14 @@ namespace SimpleCryptoBot
                             {
                                 try
                                 {
-                                    var feeRates = client.FeesService.GetCurrentFeesAsync().Result;
-                                    ThrottleSpeedPrivate();
-
-                                    var ticker = client.ProductsService.GetProductTickerAsync(order.ProductId).Result;
-                                    ThrottleSpeedPublic();
-                                    var price = ticker.Price;
-
                                     var coin = allCoins.FirstOrDefault(x => x.Id == order.ProductId);
                                     var coinStat = new CoinStat(order.ProductId, client);
 
                                     switch (order.Side)
                                     {
                                         case CoinbasePro.Services.Orders.Types.OrderSide.Buy:
-                                            var newBidStop = price + (price * feeRates.TakerFeeRate);
-                                            var newBidLimit = newBidStop + (newBidStop * feeRates.TakerFeeRate);
-                                            newBidStop = GetTruncatedValue(newBidStop, coin.QuoteIncrement);
-                                            newBidLimit = GetTruncatedValue(newBidLimit, coin.QuoteIncrement);
 
-                                            if (newBidLimit < order.Price)
+                                            if (coinStat.BidLimitPrice < order.Price)
                                             {
                                                 client.OrdersService.CancelOrderByIdAsync(order.Id.ToString()).Wait();
                                                 ThrottleSpeedPrivate();
@@ -224,47 +203,31 @@ namespace SimpleCryptoBot
                                                      order.Side,
                                                      order.ProductId,
                                                      order.Size,
-                                                     newBidLimit,
-                                                     newBidStop
+                                                     coinStat.BidLimitPrice,
+                                                     coinStat.BidStopPrice
                                                 ).Wait();
                                                 ThrottleSpeedPrivate();
 
-                                                Log.Information($"Buy order for coin {coin.Id} price driven from ${Math.Round(order.Price, 4)} to ${Math.Round(newBidLimit, 4)}.");
+                                                Log.Information($"Buy order for coin {coin.Id} price driven from ${Math.Round(order.Price, 4)} to ${Math.Round(coinStat.BidLimitPrice, 4)}.");
                                             }
                                             break;
                                         case CoinbasePro.Services.Orders.Types.OrderSide.Sell:
-                                            // Make sure order has aged enough to generate a significant profit (1% targeted).
-                                            if (order.CreatedAt < DateTime.UtcNow.AddMinutes(-15))
+                                            // Make sure the new order will be profitable
+                                            if (coinStat.AskLimitPrice > order.Price)
                                             {
-                                                var cost = order.Price + (order.Price * feeRates.MakerFeeRate) + (price * feeRates.MakerFeeRate) + (price * (decimal)0.001);
-                                                var profitMargin = feeRates.MakerFeeRate > 0 ?
-                                                    feeRates.MakerFeeRate :
-                                                    feeRates.TakerFeeRate;
-                                                var minimumPrice = cost + (cost * profitMargin);
+                                                client.OrdersService.CancelOrderByIdAsync(order.Id.ToString()).Wait();
+                                                ThrottleSpeedPrivate();
 
-                                                var stopPrice = price - (price * feeRates.TakerFeeRate);
-                                                var limitPrice = stopPrice - (stopPrice * feeRates.TakerFeeRate);
+                                                client.OrdersService.PlaceStopOrderAsync(
+                                                     order.Side,
+                                                     order.ProductId,
+                                                     order.Size,
+                                                     coinStat.AskLimitPrice,
+                                                     coinStat.AskStopPrice
+                                                ).Wait();
+                                                ThrottleSpeedPrivate();
 
-                                                stopPrice = GetTruncatedValue(stopPrice, coin.QuoteIncrement);
-                                                limitPrice = GetTruncatedValue(limitPrice, coin.QuoteIncrement);
-
-                                                // Make sure the new order will be profitable
-                                                if (limitPrice > minimumPrice)
-                                                {
-                                                    client.OrdersService.CancelOrderByIdAsync(order.Id.ToString()).Wait();
-                                                    ThrottleSpeedPrivate();
-
-                                                    client.OrdersService.PlaceStopOrderAsync(
-                                                         order.Side,
-                                                         order.ProductId,
-                                                         order.Size,
-                                                         limitPrice,
-                                                         stopPrice
-                                                    ).Wait();
-                                                    ThrottleSpeedPrivate();
-
-                                                    Log.Information($"Sell order for coin {coin.Id} price driven from ${Math.Round(order.Price, 4)} to ${Math.Round(limitPrice, 4)}.");
-                                                }
+                                                Log.Information($"Sell order for coin {coin.Id} price driven from ${Math.Round(order.Price, 4)} to ${Math.Round(coinStat.AskLimitPrice, 4)}.");
                                             }
                                             break;
                                         default:
@@ -288,6 +251,10 @@ namespace SimpleCryptoBot
                                 reportsSent.Remove(client.Name);
                                 reportsSent.Add(client.Name, true);
                             }
+
+                            // Allow the next 15 minute candle to form unabridged.
+                            var fifteenMinutes = new TimeSpan(0,15,0);
+                            Thread.Sleep(fifteenMinutes);
                         }
                         catch (Exception exc)
                         {
