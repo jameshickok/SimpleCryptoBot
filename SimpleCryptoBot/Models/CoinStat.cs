@@ -190,7 +190,11 @@ namespace SimpleCryptoBot.Models
                 .Result.OrderBy(x => x.Time);
             ThrottleSpeedPublic();
 
-            if(candles?.Count() != 4)
+            if(candles?.Count() != 4 || 
+                candles.Any(x => x.High == null) || 
+                candles.Any(x => x.Low == null) || 
+                candles.Min(x => x.High.Value) == 0 || 
+                candles.Min(x => x.Low.Value) == 0)
             {
                 return false;
             }

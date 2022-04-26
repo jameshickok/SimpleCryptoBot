@@ -151,7 +151,7 @@ namespace SimpleCryptoBot
                                     
                                     size = GetTruncatedValue(size, coin.BaseIncrement);
 
-                                    if (size >= coin.BaseMinSize)
+                                    if (size >= coin.BaseMinSize && coinStat.AskLimitPrice >= coin.MinMarketFunds)
                                     {
                                         client.OrdersService.PlaceStopOrderAsync(
                                              CoinbasePro.Services.Orders.Types.OrderSide.Sell,
@@ -194,7 +194,7 @@ namespace SimpleCryptoBot
                                     {
                                         case CoinbasePro.Services.Orders.Types.OrderSide.Buy:
 
-                                            if (coinStat.BidLimitPrice < order.Price)
+                                            if (coinStat.BidLimitPrice < order.Price && coinStat.BidLimitPrice >= coin.MinMarketFunds)
                                             {
                                                 client.OrdersService.CancelOrderByIdAsync(order.Id.ToString()).Wait();
                                                 ThrottleSpeedPrivate();
